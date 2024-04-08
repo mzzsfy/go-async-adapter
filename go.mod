@@ -1,4 +1,4 @@
-module fastws
+module github.com/mzzsfy/go-async-adapter
 
 go 1.18
 

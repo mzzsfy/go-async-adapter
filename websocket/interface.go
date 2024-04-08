@@ -1,22 +1,73 @@
-package fastws
+package websocket
 
-type AsyncConnHandler interface {
-    OnData([]byte) error
-    OnClose(error)
-}
-
-type AsyncConn interface {
-    SetCallback(AsyncConnHandler) error
-    AsyncWrite([]byte) error
-    Close() error
-}
+import "bytes"
 
 type UpgradeInfo interface {
     Path() []byte
     Param([]byte) []byte
     Params() []byte
     Header([]byte) []byte
-    Headers() [][]byte //[]{[]{"host: xxxx"}}
+    Headers() [][]byte //[]{"name","value","name1","value1"}
+}
+
+type upgradeInfo struct {
+    path    []byte
+    params  []byte
+    headers [][]byte
+}
+
+func (u upgradeInfo) Path() []byte {
+    u.init()
+    return u.path
+}
+
+var (
+    symbolAnd      = []byte("&")
+    symbolEq       = []byte("=")
+    symbolHost     = []byte("Host")
+    symbolQuestion = []byte("?")
+    symbolSlash    = []byte("/")
+)
+
+func (u upgradeInfo) Param(name []byte) []byte {
+    u.init()
+    for _, b := range bytes.Split(u.params, symbolAnd) {
+        n := bytes.SplitN(b, symbolEq, 2)
+        if bytes.Equal(n[0], name) {
+            return n[1]
+        }
+    }
+    return nil
+}
+
+func (u upgradeInfo) Params() []byte {
+    u.init()
+    return u.params
+}
+
+func (u upgradeInfo) Header(name []byte) []byte {
+    u.init()
+    for i := 0; i < len(u.headers); i += 2 {
+        if bytes.Equal(u.headers[i], name) {
+            return u.headers[i+1]
+        }
+    }
+    return nil
+}
+
+func (u upgradeInfo) Headers() [][]byte {
+    u.init()
+    if len(u.headers) == 0 {
+        return nil
+    }
+    return u.headers
+}
+
+func (u upgradeInfo) AddHeader(k, v []byte) {
+    u.headers = append(u.headers, k, v)
+}
+
+func (u upgradeInfo) init() {
 }
 
 type OpCode byte
@@ -43,6 +94,9 @@ type MessageHandler interface {
     // OnError 非websocket错误,如连接中断,数据异常等,触发这个回调后还会触发 OnClose(1006,error.Error())
     OnError(error)
 }
+type ControlMessageHandler interface {
+    OnControlMessage(Message) error
+}
 
 type DoNothingHandler struct{}
 
@@ -60,9 +114,9 @@ type SendMessage struct {
     cache       []byte
 }
 
-type AsyncWs interface {
+type AsyncWebsocket interface {
     Send(*SendMessage) error
+    Ping() error
     // Close code含义:https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
     Close(closeCode uint16, data string) error
-    Start(AsyncConn) error
 }

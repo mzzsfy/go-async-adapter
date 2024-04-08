@@ -1,8 +1,10 @@
-package fastws
+package websocket
 
 import (
     "encoding/binary"
     "github.com/gobwas/ws"
+    "github.com/mzzsfy/go-async-adapter/base"
+    "io"
 )
 
 const (
@@ -57,4 +59,30 @@ func writeWsHeader(bts []byte, h *ws.Header) {
         bts[1] |= 0x80
         n += copy(bts[n:], h.Mask[:])
     }
+}
+
+type rw_ struct {
+    conn   base.AsyncConnect
+    bufOld []byte
+    bufNew []byte
+    ri     int
+}
+
+func (r *rw_) Read(p []byte) (n int, err error) {
+    if r.ri < len(r.bufOld) {
+        n = copy(p, r.bufOld[r.ri:])
+        r.ri += n
+    }
+    if r.ri < len(r.bufOld)+len(r.bufNew) {
+        i := copy(p[n:], r.bufNew)
+        n += i
+        r.ri += i
+    } else {
+        return n, io.EOF
+    }
+    return
+}
+
+func (r *rw_) Write(p []byte) (n int, err error) {
+    return len(p), r.conn.AsyncWrite(p)
 }
