@@ -6,8 +6,8 @@ import (
     "fmt"
     "github.com/gobwas/ws"
     "github.com/gobwas/ws/wsutil"
-    "github.com/mzzsfy/go-async-adapter/websocket"
     "math/rand"
+    "net/http"
     "strconv"
     "time"
 )
@@ -17,6 +17,7 @@ func init() {
 }
 
 func Run(port, num int) {
+    time.Sleep(100 * time.Millisecond)
     for c := 0; c < num; c++ {
         c := c
         go func() {
@@ -26,12 +27,24 @@ func Run(port, num int) {
                 fmt.Println(c, "创建连接失败", err)
                 return
             }
-            message, err := wsutil.ReadServerMessage(conn, nil)
-            if err != nil {
-                fmt.Println(c, "read error: ", err)
-            } else {
-                fmt.Println(c, "recv", message[0].OpCode, string(message[0].Payload))
-            }
+            go func() {
+                for {
+                    message, err := wsutil.ReadServerMessage(conn, nil)
+                    if err != nil {
+                        fmt.Println(c, "read error: ", err)
+                        return
+                    } else {
+                        for _, m := range message {
+                            if m.OpCode == ws.OpPing {
+                                fmt.Println(c, "recv", "ping")
+                                wsutil.WriteClientMessage(conn, ws.OpPong, nil)
+                            } else {
+                                fmt.Println(c, "recv", m.OpCode, string(m.Payload))
+                            }
+                        }
+                    }
+                }
+            }()
             for i := 0; i < 10; i++ {
                 buffer := &bytes.Buffer{}
                 if i%2 == 0 {
@@ -42,6 +55,9 @@ func Run(port, num int) {
                     wsutil.WriteClientMessage(buffer, ws.OpBinary, []byte(strconv.Itoa(c)+":hello,text! "+strconv.Itoa(i)))
                 }
                 _, err = conn.Write(buffer.Bytes())
+                if f, ok := conn.(http.Flusher); ok {
+                    f.Flush()
+                }
                 if err != nil {
                     fmt.Println(c, "error:", err)
                     return
@@ -52,24 +68,4 @@ func Run(port, num int) {
             time.Sleep(time.Second * 5)
         }()
     }
-}
-
-type Wsc struct {
-    websocket.DoNothingHandler
-    Ws websocket.AsyncWebsocket
-}
-
-func (w *Wsc) OnMessage(message websocket.Message) error {
-    fmt.Println("OnMessage", message.OpCode, string(message.Payload))
-    return nil
-}
-
-func (w *Wsc) OnUpgrade(info websocket.UpgradeInfo) error {
-    p := string(info.Params())
-    go func() {
-        time.Sleep(100 * time.Millisecond)
-        w.Ws.Send(&websocket.SendMessage{Data: []byte("hello,client! " + p)})
-    }()
-    fmt.Println("OnUpgrade", string(info.Path()), p, info.Headers())
-    return nil
 }

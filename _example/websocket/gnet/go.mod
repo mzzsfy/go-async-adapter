@@ -4,7 +4,7 @@ go 1.18
 
 replace (
 	client v0.0.0 => ../client/
-	github.com/mzzsfy/go-async-adapter v0.0.0 => ../../
+	github.com/mzzsfy/go-async-adapter v0.0.0 => ../../../
 )
 
 require (

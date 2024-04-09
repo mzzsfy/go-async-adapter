@@ -95,7 +95,9 @@ type MessageHandler interface {
     OnError(error)
 }
 type ControlMessageHandler interface {
-    OnControlMessage(Message) error
+    MessageHandler
+    // OnControlMessage 自定义处理控制消息,返回true表示已自己处理完成,否则将执行默认逻辑
+    OnControlMessage(Message) (bool, error)
 }
 
 type DoNothingHandler struct{}

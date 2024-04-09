@@ -12,21 +12,21 @@ import (
     "time"
 )
 
-type wsc struct {
+type wsc_ struct {
     client.Wsc
     conn gnet.Conn
 }
 
-func (w *wsc) SetAsyncCallback(handler base.AsyncConnHandler) error {
+func (w *wsc_) SetAsyncCallback(handler base.AsyncConnHandler) error {
     w.conn.SetContext(handler)
     return nil
 }
 
-func (w *wsc) AsyncWrite(bytes []byte) error {
+func (w *wsc_) AsyncWrite(bytes []byte) error {
     return w.conn.AsyncWrite(bytes, nil)
 }
 
-func (w *wsc) AsyncClose() error {
+func (w *wsc_) AsyncClose() error {
     return w.conn.CloseWithCallback(nil)
 }
 
@@ -35,7 +35,7 @@ type server struct {
 }
 
 func (s *server) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
-    handler := &wsc{conn: c}
+    handler := &wsc_{conn: c}
     w, err := websocket.NewServerWs(handler, handler)
     handler.Ws = w
     if err != nil {
@@ -75,7 +75,7 @@ func main() {
         time.Sleep(10 * time.Second)
         os.Exit(0)
     }()
-    client.Run(port, 1)
+    client.Run(port, 5)
     fmt.Println("start on port", port)
     gnet.Run(&server{}, ":"+strconv.Itoa(port))
 }

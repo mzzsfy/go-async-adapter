@@ -134,12 +134,12 @@ func (s *serverAsyncWs) data(bs []byte) (err error) {
                 return
             }
             var head ws.Header
-            head, err = ws.ReadHeader(bytes.NewReader(getHeadBytes(rw.bufOld, rw.ri, rw.bufOld)))
+            head, err = ws.ReadHeader(bytes.NewReader(getHeadBytes(rw.bufNew, rw.ri, rw.bufOld)))
             if err == io.EOF { //数据不完整,合并到下次处理
                 return nil
             }
             if err != nil {
-                return err
+                return
             }
             s.curHeader = &head
         } else if s.lastIndex > 0 {
@@ -147,18 +147,18 @@ func (s *serverAsyncWs) data(bs []byte) (err error) {
                 return
             }
             var head ws.Header
-            head, err = ws.ReadHeader(bytes.NewReader(getHeadBytes(rw.bufOld, rw.ri, rw.bufOld)))
+            head, err = ws.ReadHeader(bytes.NewReader(getHeadBytes(rw.bufNew, rw.ri, rw.bufOld)))
             if err == io.EOF { //数据不完整,合并到下次处理
                 return nil
             }
             if err != nil {
-                return err
+                return
             }
             s.curHeader = &head
         }
         dataLen := int(s.curHeader.Length)
         if dataLen > 0 {
-            if len(rw.bufNew)+len(rw.bufOld)-rw.ri < dataLen {
+            if len(rw.bufNew)+len(rw.bufOld)-rw.ri < dataLen+wsHeadLength(s.curHeader) {
                 return
             }
         }
@@ -169,13 +169,40 @@ func (s *serverAsyncWs) data(bs []byte) (err error) {
             s.lastIndex = 0
             s.curHeader = nil
             if err != nil {
-                return err
+                return
             }
             for _, message := range messages {
+                if message.OpCode.IsControl() {
+                    var over bool
+                    if h, ok := s.handler.(ControlMessageHandler); ok {
+                        over, err = h.OnControlMessage(Message{
+                            OpCode:  OpCode(message.OpCode),
+                            Payload: message.Payload,
+                        })
+                        if err != nil {
+                            return
+                        }
+                    }
+                    if !over {
+                        buffer := &bytes.Buffer{}
+                        err = wsutil.HandleClientControlMessage(buffer, message)
+                        if err != nil {
+                            return
+                        }
+                        err = s.conn.AsyncWrite(buffer.Bytes())
+                    }
+                    if err != nil {
+                        return
+                    }
+                    continue
+                }
                 err = s.handler.OnMessage(Message{
                     OpCode:  OpCode(message.OpCode),
                     Payload: message.Payload,
                 })
+                if err != nil {
+                    return
+                }
             }
         } else {
             //如果不是完整消息,改变reader位置
@@ -188,7 +215,7 @@ func getHeadBytes(newBuf []byte, start int, oldBuf []byte) []byte {
     if len(oldBuf) > ws.MaxHeaderSize {
         oldBuf = oldBuf[:ws.MaxHeaderSize]
     } else {
-        end := start + ws.MaxHeaderSize - len(oldBuf) + start
+        end := ws.MaxHeaderSize - (len(oldBuf) - start)
         if end >= len(newBuf) {
             end = len(newBuf)
         }

@@ -14,23 +14,23 @@ import (
     "time"
 )
 
-type wsc struct {
+type wsc_ struct {
     client.Wsc
     conn    netpoll.Connection
     handler base.AsyncConnHandler
 }
 
-func (w *wsc) SetAsyncCallback(handler base.AsyncConnHandler) error {
+func (w *wsc_) SetAsyncCallback(handler base.AsyncConnHandler) error {
     w.handler = handler
     return nil
 }
 
-func (w *wsc) AsyncWrite(bytes []byte) error {
-    _, err := w.conn.Writer().WriteBinary(bytes)
+func (w *wsc_) AsyncWrite(bytes []byte) error {
+    _, err := w.conn.Write(bytes)
     return err
 }
 
-func (w *wsc) AsyncClose() error {
+func (w *wsc_) AsyncClose() error {
     return w.conn.Close()
 }
 
@@ -46,7 +46,7 @@ func main() {
         panic("create netpoll listener failed")
     }
     loop, err := netpoll.NewEventLoop(func(ctx context.Context, connection netpoll.Connection) error {
-        handler := ctx.Value("handler").(*wsc).handler
+        handler := ctx.Value("handler").(base.AsyncConnHandler)
         reader := connection.Reader()
         defer reader.Release()
         p, err := reader.Next(reader.Len())
@@ -60,14 +60,14 @@ func main() {
         }
         return err
     }, netpoll.WithOnPrepare(func(connection netpoll.Connection) context.Context {
-        handler := &wsc{conn: connection}
-        ws, _ := websocket.NewServerWs(handler, handler)
+        wsc := &wsc_{conn: connection}
+        ws, _ := websocket.NewServerWs(wsc, wsc)
         connection.AddCloseCallback(func(connection netpoll.Connection) error {
-            handler.handler.OnClose(errors.New("close"))
+            wsc.handler.OnClose(errors.New("close"))
             return nil
         })
-        handler.Ws = ws
-        return context.WithValue(context.Background(), "handler", handler)
+        wsc.Ws = ws
+        return context.WithValue(context.Background(), "handler", wsc.handler)
     }))
     if err != nil {
         panic("create netpoll event loop failed")
