@@ -1,76 +1,14 @@
 package websocket
 
-import "bytes"
-
-type UpgradeInfo interface {
-    Path() []byte
-    Param([]byte) []byte
-    Params() []byte
-    Header([]byte) []byte
-    Headers() [][]byte //[]{"name","value","name1","value1"}
-}
-
-type upgradeInfo struct {
-    path    []byte
-    params  []byte
-    headers [][]byte
-}
-
-func (u upgradeInfo) Path() []byte {
-    u.init()
-    return u.path
-}
+type OpCode byte
 
 var (
     symbolAnd      = []byte("&")
     symbolEq       = []byte("=")
-    symbolHost     = []byte("Host")
     symbolQuestion = []byte("?")
     symbolSlash    = []byte("/")
+    symbolHost     = []byte("Host")
 )
-
-func (u upgradeInfo) Param(name []byte) []byte {
-    u.init()
-    for _, b := range bytes.Split(u.params, symbolAnd) {
-        n := bytes.SplitN(b, symbolEq, 2)
-        if bytes.Equal(n[0], name) {
-            return n[1]
-        }
-    }
-    return nil
-}
-
-func (u upgradeInfo) Params() []byte {
-    u.init()
-    return u.params
-}
-
-func (u upgradeInfo) Header(name []byte) []byte {
-    u.init()
-    for i := 0; i < len(u.headers); i += 2 {
-        if bytes.Equal(u.headers[i], name) {
-            return u.headers[i+1]
-        }
-    }
-    return nil
-}
-
-func (u upgradeInfo) Headers() [][]byte {
-    u.init()
-    if len(u.headers) == 0 {
-        return nil
-    }
-    return u.headers
-}
-
-func (u upgradeInfo) AddHeader(k, v []byte) {
-    u.headers = append(u.headers, k, v)
-}
-
-func (u upgradeInfo) init() {
-}
-
-type OpCode byte
 
 const (
     OpContinuation OpCode = 0x0
@@ -81,14 +19,54 @@ const (
     OpPong         OpCode = 0xa
 )
 
+type UpgradeType int8
+
+const (
+    UpgradeTypeHeader UpgradeType = iota + 1
+    UpgradeTypePath
+    UpgradeTypeQuery
+    UpgradeTypeProtocol  //todo:支持 Sec-WebSocket-Protocol
+    UpgradeTypeExtension //todo:支持 Sec-WebSocket-Extensions
+)
+
 type Message struct {
     OpCode  OpCode
     Payload []byte
 }
 
+type DataWrapper interface {
+    // Name 获取包装名称,如: flate 或 flate,xxx,不同协议不要重复,否则使用缓存会导致数据错乱
+    Name() string
+    // ReadData 解码数据
+    ReadData([]byte) []byte
+    // WritData 编码数据
+    WritData([]byte) []byte
+}
+
+type UpgradeHandler interface {
+    // On 处理升级参数,data为完整数据,如:
+    //UpgradeTypeHeader: []byte("Host: host")
+    //UpgradeTypeQuery: []byte("a=1&b=2&c&d")
+    //UpgradeTypeProtocol: []byte("aaa,bbb;ccc")
+    On(UpgradeType UpgradeType, data []byte) error
+    // CheckUpgrade 参数回调完成,最后的检验
+    CheckUpgrade() error
+    // ResponseHeader 添加响应头,会被多次调用,直到返回name为nil
+    ResponseHeader() (name, value []byte)
+    // DataWrapper 提供数据传输压缩等功能支持
+    DataWrapper() DataWrapper
+}
+
+type DoNothingUpgrade struct{}
+
+func (d DoNothingUpgrade) On(UpgradeType, []byte) error     { return nil }
+func (d DoNothingUpgrade) CheckUpgrade() error              { return nil }
+func (d DoNothingUpgrade) ResponseHeader() ([]byte, []byte) { return nil, nil }
+func (d DoNothingUpgrade) DataWrapper() DataWrapper         { return nil }
+
 type MessageHandler interface {
     OnMessage(Message) error
-    OnUpgrade(UpgradeInfo) error
+    OnUpgrade() UpgradeHandler
     // OnClose code含义:https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
     OnClose(closeCode uint16, data string)
     // OnError 非websocket错误,如连接中断,数据异常等,触发这个回调后还会触发 OnClose(1006,error.Error())
@@ -102,10 +80,10 @@ type ControlMessageHandler interface {
 
 type DoNothingHandler struct{}
 
-func (d DoNothingHandler) OnMessage(message Message) error       { return nil }
-func (d DoNothingHandler) OnUpgrade(info UpgradeInfo) error      { return nil }
-func (d DoNothingHandler) OnClose(closeCode uint16, data string) {}
-func (d DoNothingHandler) OnError(error)                         {}
+func (d DoNothingHandler) OnMessage(Message) error   { return nil }
+func (d DoNothingHandler) OnUpgrade() UpgradeHandler { return nil }
+func (d DoNothingHandler) OnClose(uint16, string)    {}
+func (d DoNothingHandler) OnError(error)             {}
 
 type SendMessage struct {
     // IsBinary 是否为二进制数据
@@ -113,7 +91,10 @@ type SendMessage struct {
     // EnableCache 是否启用缓存,服务端给大量用户发送相同消息时可以有效减少内存分配
     EnableCache bool
     Data        []byte
-    cache       []byte
+    cache       []struct {
+        name string
+        data []byte
+    }
 }
 
 type AsyncWebsocket interface {

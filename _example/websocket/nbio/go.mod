@@ -1,6 +1,6 @@
 module nbio
 
-go 1.22
+go 1.19
 
 replace (
 	client v0.0.0 => ../client/

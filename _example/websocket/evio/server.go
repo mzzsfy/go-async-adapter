@@ -1,4 +1,4 @@
-package main
+package evio
 
 import (
     "bytes"
@@ -6,8 +6,6 @@ import (
     "github.com/mzzsfy/go-async-adapter/base"
     "github.com/mzzsfy/go-async-adapter/websocket"
     "github.com/tidwall/evio"
-    "math/rand"
-    "os"
     "strconv"
     "time"
 )
@@ -37,9 +35,8 @@ func (w *wsc_) AsyncClose() error {
     return nil
 }
 
-func main() {
+func Run(port int) func() {
     var events evio.Events
-    port := 20000 + rand.Intn(9999)
     events.Data = func(c evio.Conn, in []byte) (out []byte, action evio.Action) {
         var h *wsc_
         var ok bool
@@ -48,7 +45,7 @@ func main() {
         } else {
             h = &wsc_{conn: c}
             ws, err := websocket.NewServerWs(h, h)
-            h.Ws = ws
+            h.Wsc = client.NewWsc(ws)
             if err != nil {
                 return nil, evio.Close
             }
@@ -67,12 +64,17 @@ func main() {
         }
         return
     }
-    go func() {
-        time.Sleep(10 * time.Second)
-        os.Exit(0)
-    }()
-    client.Run(port, 5)
-    if err := evio.Serve(events, "tcp://:"+strconv.Itoa(port)); err != nil {
-        panic(err.Error())
+    closed := false
+    events.Tick = func() (delay time.Duration, action evio.Action) {
+        if closed {
+            return 0, evio.Close
+        }
+        return 100 * time.Millisecond, evio.None
     }
+    go func() {
+        if err := evio.Serve(events, "tcp://:"+strconv.Itoa(port)); err != nil {
+            panic(err.Error())
+        }
+    }()
+    return func() { closed = true }
 }

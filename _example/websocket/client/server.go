@@ -7,23 +7,28 @@ import (
     "time"
 )
 
-type Wsc struct {
+type Wsc websocket.ControlMessageHandler
+
+var NewWsc = func(ws websocket.AsyncWebsocket) Wsc {
+    return &WscPrint{Ws: ws}
+}
+
+type WscPrint struct {
     websocket.DoNothingHandler
     Ws websocket.AsyncWebsocket
 }
 
-func (w *Wsc) OnControlMessage(message websocket.Message) (bool, error) {
+func (w *WscPrint) OnControlMessage(message websocket.Message) (bool, error) {
     fmt.Println("OnControlMessage", message.OpCode, string(message.Payload))
     return false, nil
 }
 
-func (w *Wsc) OnMessage(message websocket.Message) error {
+func (w *WscPrint) OnMessage(message websocket.Message) error {
     fmt.Println("OnMessage", message.OpCode, string(message.Payload))
     return nil
 }
 
-func (w *Wsc) OnUpgrade(info websocket.UpgradeInfo) error {
-    p := string(info.Params())
+func (w *WscPrint) OnUpgrade() websocket.UpgradeHandler {
     go func() {
         time.Sleep(100 * time.Millisecond)
         for i := 0; i < 6; i++ {
@@ -35,9 +40,31 @@ func (w *Wsc) OnUpgrade(info websocket.UpgradeInfo) error {
         time.Sleep(100 * time.Millisecond)
         for i := 0; i < 7; i++ {
             time.Sleep(time.Duration(i*88) * time.Millisecond)
-            w.Ws.Send(&websocket.SendMessage{Data: []byte(strconv.Itoa(i) + ": hello,client! " + p)})
+            w.Ws.Send(&websocket.SendMessage{Data: []byte(strconv.Itoa(i) + ": hello,client! ")})
         }
     }()
-    fmt.Println("OnUpgrade", string(info.Path()), p, info.Headers())
+    return nil
+}
+
+type WscEcho struct {
+    NoCopy bool
+    websocket.DoNothingHandler
+    Ws websocket.AsyncWebsocket
+}
+
+func (w *WscEcho) OnControlMessage(_ websocket.Message) (bool, error) {
+    return false, nil
+}
+
+func (w *WscEcho) OnMessage(message websocket.Message) error {
+    if w.NoCopy {
+        return w.Ws.Send(&websocket.SendMessage{Data: message.Payload})
+    }
+    bs := make([]byte, len(message.Payload))
+    copy(bs, message.Payload)
+    return w.Ws.Send(&websocket.SendMessage{Data: bs})
+}
+
+func (w *WscEcho) OnUpgrade() websocket.UpgradeHandler {
     return nil
 }

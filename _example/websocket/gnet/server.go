@@ -1,15 +1,15 @@
-package main
+package gnet
 
 import (
     "client"
+    "context"
     "fmt"
     "github.com/mzzsfy/go-async-adapter/base"
     "github.com/mzzsfy/go-async-adapter/websocket"
     "github.com/panjf2000/gnet/v2"
-    "math/rand"
-    "os"
+    "github.com/panjf2000/gnet/v2/pkg/logging"
     "strconv"
-    "time"
+    "strings"
 )
 
 type wsc_ struct {
@@ -23,7 +23,12 @@ func (w *wsc_) SetAsyncCallback(handler base.AsyncConnHandler) error {
 }
 
 func (w *wsc_) AsyncWrite(bytes []byte) error {
-    return w.conn.AsyncWrite(bytes, nil)
+    return w.conn.AsyncWrite(bytes, func(c gnet.Conn, err error) error {
+        if err != nil {
+            fmt.Printf("server write error: %v\n", err)
+        }
+        return err
+    })
 }
 
 func (w *wsc_) AsyncClose() error {
@@ -36,8 +41,8 @@ type server struct {
 
 func (s *server) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
     handler := &wsc_{conn: c}
-    w, err := websocket.NewServerWs(handler, handler)
-    handler.Ws = w
+    ws, err := websocket.NewServerWs(handler, handler)
+    handler.Wsc = client.NewWsc(ws)
     if err != nil {
         return nil, gnet.Close
     }
@@ -69,13 +74,31 @@ func (s *server) OnClose(c gnet.Conn, err error) (action gnet.Action) {
     return gnet.None
 }
 
-func main() {
-    port := 20000 + rand.Intn(9999)
-    go func() {
-        time.Sleep(10 * time.Second)
-        os.Exit(0)
-    }()
-    client.Run(port, 5)
-    fmt.Println("start on port", port)
-    gnet.Run(&server{}, ":"+strconv.Itoa(port))
+type log__ struct {
+}
+
+func (l log__) Debugf(format string, args ...interface{}) {
+}
+
+func (l log__) Infof(format string, args ...interface{}) {
+}
+
+func (l log__) Warnf(format string, args ...interface{}) {
+    if strings.HasPrefix(format, "error occurs in user-defined function") {
+        return
+    }
+}
+
+func (l log__) Errorf(format string, args ...interface{}) {
+}
+
+func (l log__) Fatalf(format string, args ...interface{}) {
+}
+
+func Run(port int) func() {
+    logging.SetDefaultLoggerAndFlusher(log__{}, func() error { return nil })
+    go gnet.Run(&server{}, ":"+strconv.Itoa(port))
+    return func() {
+        gnet.Stop(context.Background(), ":"+strconv.Itoa(port))
+    }
 }

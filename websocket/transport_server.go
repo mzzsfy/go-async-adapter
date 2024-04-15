@@ -22,6 +22,7 @@ type serverAsyncWs struct {
     conn     base.AsyncConnect
     handler  MessageHandler
     upgraded bool
+    wrapper  DataWrapper
 
     readBuf   bytes.Buffer
     curHeader *ws.Header //当前头数据
@@ -70,44 +71,66 @@ func (s *serverAsyncWs) upgrade(buf []byte) ([]byte, error) {
             return nil, nil
         }
     }
+    //todo 重新实现,不使用框架
     wsUp := wsuPool.Get().(*ws.Upgrader)
-    info := upgradeInfo{}
-    wsUp.OnHeader = func(key, value []byte) error {
-        info.AddHeader(key, value)
-        return nil
-    }
-    wsUp.OnHost = func(host []byte) error {
-        info.AddHeader(symbolHost, host)
-        return nil
-    }
-    wsUp.OnRequest = func(uri []byte) error {
-        n := bytes.SplitN(uri, symbolQuestion, 2)
-        if len(n) != 0 {
-            info.path = n[0]
-        } else {
-            info.path = symbolSlash
+    defer wsuPool.Put(wsUp)
+    upgrade := s.handler.OnUpgrade()
+    if upgrade != nil {
+        wsUp.OnRequest = func(uri []byte) error {
+            n := bytes.SplitN(uri, symbolQuestion, 2)
+            var path []byte
+            if len(n) != 0 {
+                path = n[0]
+            } else {
+                path = symbolSlash
+            }
+            err := upgrade.On(UpgradeTypePath, path)
+            if err != nil {
+                return err
+            }
+            if len(n) > 1 {
+                return upgrade.On(UpgradeTypeQuery, n[1])
+            }
+            return nil
         }
-        if len(n) > 1 {
-            info.params = n[1]
+        wsUp.OnHeader = func(key, value []byte) error {
+            return upgrade.On(UpgradeTypeHeader, append(append(key, ':', ' '), value...))
         }
-        return nil
+        wsUp.OnHost = func(host []byte) error {
+            return upgrade.On(UpgradeTypeHeader, append(append(symbolHost, ':', ' '), host...))
+        }
+        wsUp.OnBeforeUpgrade = func() (header ws.HandshakeHeader, err error) {
+            var bs *bytes.Buffer
+            for {
+                name, value := upgrade.ResponseHeader()
+                if len(name) == 0 {
+                    break
+                }
+                if bs == nil {
+                    bs = &bytes.Buffer{}
+                }
+                bs.Write(append(append(name, ':', ' '), value...))
+            }
+            return bs, upgrade.CheckUpgrade()
+        }
     }
-    wsUp.OnBeforeUpgrade = func() (header ws.HandshakeHeader, err error) { return nil, s.handler.OnUpgrade(info) }
-    _, err := wsUp.Upgrade(&rw_{
+    rw := &rw_{
         conn:   s.conn,
         bufNew: buf,
         bufOld: s.readBuf.Bytes(),
-    })
-    wsUp.OnHeader = nil
-    wsUp.OnHost = nil
-    wsUp.OnRequest = nil
-    wsUp.OnBeforeUpgrade = nil
-    wsuPool.Put(wsUp)
+    }
+    _, err := wsUp.Upgrade(rw)
+    if upgrade != nil {
+        wsUp.OnHeader = nil
+        wsUp.OnHost = nil
+        wsUp.OnRequest = nil
+        wsUp.OnBeforeUpgrade = nil
+    }
     if err != nil {
         return nil, err
     }
     s.upgraded = true
-    return nil, nil
+    return buf[rw.ri-len(rw.bufOld):], nil
 }
 
 func (s *serverAsyncWs) data(bs []byte) (err error) {
@@ -212,16 +235,18 @@ func (s *serverAsyncWs) data(bs []byte) (err error) {
 }
 
 func getHeadBytes(newBuf []byte, start int, oldBuf []byte) []byte {
-    if len(oldBuf) > ws.MaxHeaderSize {
-        oldBuf = oldBuf[:ws.MaxHeaderSize]
+    if start > len(oldBuf) {
+        return newBuf[start-len(oldBuf):]
+    }
+    if len(oldBuf)-start > ws.MaxHeaderSize {
+        return oldBuf[start:]
     } else {
         end := ws.MaxHeaderSize - (len(oldBuf) - start)
         if end >= len(newBuf) {
             end = len(newBuf)
         }
-        oldBuf = append(oldBuf, newBuf[start:end]...)
+        return append(oldBuf, newBuf[:end]...)
     }
-    return oldBuf
 }
 
 func (s *serverAsyncWs) OnClose(err error) {
@@ -237,9 +262,20 @@ func (s *serverAsyncWs) Ping() error {
 }
 
 func (s *serverAsyncWs) Send(m *SendMessage) error {
+    cacheName := ""
     if m.EnableCache {
         if len(m.cache) > 0 {
-            return s.conn.AsyncWrite(m.cache)
+            if s.wrapper != nil {
+                cacheName = s.wrapper.Name()
+                if cacheName == "" {
+                    cacheName = ");n$_-"
+                }
+            }
+            for _, v := range m.cache {
+                if v.name == cacheName {
+                    return s.conn.AsyncWrite(v.data)
+                }
+            }
         }
     }
     var header *ws.Header
@@ -257,7 +293,29 @@ func (s *serverAsyncWs) Send(m *SendMessage) error {
     //ws.Cipher(message.Payload, header.Mask, 0)
     copy(bs[headLen:], m.Data)
     if m.EnableCache {
-        m.cache = bs
+        if s.wrapper == nil {
+            c := make([]struct {
+                name string
+                data []byte
+            }, len(m.cache)+1)
+            c[0] = struct {
+                name string
+                data []byte
+            }{
+                name: cacheName,
+                data: bs,
+            }
+            copy(c[1:], m.cache)
+            m.cache = c
+        } else {
+            m.cache = append(m.cache, struct {
+                name string
+                data []byte
+            }{
+                name: cacheName,
+                data: bs,
+            })
+        }
     }
     return s.conn.AsyncWrite(bs)
 }

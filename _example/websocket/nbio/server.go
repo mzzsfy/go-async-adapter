@@ -1,4 +1,4 @@
-package main
+package nbio
 
 import (
     "client"
@@ -6,11 +6,7 @@ import (
     "github.com/lesismal/nbio"
     "github.com/mzzsfy/go-async-adapter/base"
     "github.com/mzzsfy/go-async-adapter/websocket"
-    "log"
-    "math/rand"
-    "os"
     "strconv"
-    "time"
 )
 
 type wsc_ struct {
@@ -33,16 +29,15 @@ func (w *wsc_) AsyncClose() error {
     return w.conn.Close()
 }
 
-func main() {
-    port := 20000 + rand.Intn(9999)
+func Run(port int) func() {
     engine := nbio.NewEngine(nbio.Config{
         Network: "tcp",
         Addrs:   []string{":" + strconv.Itoa(port)},
     })
     engine.OnOpen(func(c *nbio.Conn) {
         handler := &wsc_{conn: c}
-        w, err := websocket.NewServerWs(handler, handler)
-        handler.Ws = w
+        ws, err := websocket.NewServerWs(handler, handler)
+        handler.Wsc = client.NewWsc(ws)
         if err != nil {
             fmt.Println("websocket.NewServerWs failed:", err)
             return
@@ -55,16 +50,9 @@ func main() {
     engine.OnData(func(c *nbio.Conn, data []byte) {
         c.Session().(*wsc_).handler.OnData(data)
     })
-    go func() {
-        time.Sleep(10 * time.Second)
-        os.Exit(0)
-    }()
-    client.Run(port, 5)
     err := engine.Start()
     if err != nil {
-        log.Fatalf("nbio.Start failed: %v\n", err)
-        return
+        panic(err)
     }
-    defer engine.Stop()
-    select {}
+    return engine.Stop
 }

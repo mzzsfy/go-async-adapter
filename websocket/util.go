@@ -72,6 +72,9 @@ func (r *rw_) Read(p []byte) (n int, err error) {
     if r.ri < len(r.bufOld) {
         n = copy(p, r.bufOld[r.ri:])
         r.ri += n
+        if r.ri <= len(r.bufOld) {
+            return
+        }
     }
     if r.ri < len(r.bufOld)+len(r.bufNew) {
         i := copy(p[n:], r.bufNew[r.ri-len(r.bufOld):])

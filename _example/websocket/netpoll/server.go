@@ -1,4 +1,4 @@
-package main
+package netpoll
 
 import (
     "client"
@@ -7,11 +7,8 @@ import (
     "github.com/cloudwego/netpoll"
     "github.com/mzzsfy/go-async-adapter/base"
     "github.com/mzzsfy/go-async-adapter/websocket"
-    "math/rand"
     "net"
-    "os"
     "strconv"
-    "time"
 )
 
 type wsc_ struct {
@@ -34,13 +31,7 @@ func (w *wsc_) AsyncClose() error {
     return w.conn.Close()
 }
 
-func main() {
-    port := 20000 + rand.Intn(9999)
-    go func() {
-        time.Sleep(10 * time.Second)
-        os.Exit(0)
-    }()
-    client.Run(port, 5)
+func Run(port int) func() {
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
     if err != nil {
         panic("create netpoll listener failed")
@@ -66,12 +57,14 @@ func main() {
             wsc.handler.OnClose(errors.New("close"))
             return nil
         })
-        wsc.Ws = ws
+        wsc.Wsc = client.NewWsc(ws)
         return context.WithValue(context.Background(), "handler", wsc.handler)
     }))
     if err != nil {
         panic("create netpoll event loop failed")
     }
-    client.Run(port, 5)
-    loop.Serve(listener)
+    go loop.Serve(listener)
+    return func() {
+        loop.Shutdown(context.Background())
+    }
 }
