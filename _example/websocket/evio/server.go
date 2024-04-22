@@ -43,7 +43,7 @@ func Run(port int) func() {
         if h, ok = c.Context().(*wsc_); ok {
             h.conn = c
         } else {
-            h = &wsc_{conn: c}
+            h = &wsc_{conn: c, writer: *bytes.NewBuffer(nil)}
             ws, err := websocket.NewServerWs(h, h)
             h.Wsc = client.NewWsc(ws)
             if err != nil {

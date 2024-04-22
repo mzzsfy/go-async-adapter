@@ -68,3 +68,46 @@ func (w *WscEcho) OnMessage(message websocket.Message) error {
 func (w *WscEcho) OnUpgrade() websocket.UpgradeHandler {
     return nil
 }
+
+type WscDoNothing struct {
+    websocket.DoNothingHandler
+    Ws websocket.AsyncWebsocket
+}
+
+func (w *WscDoNothing) OnControlMessage(_ websocket.Message) (bool, error) {
+    return false, nil
+}
+
+func (w *WscDoNothing) OnMessage(message websocket.Message) error {
+    return nil
+}
+
+func (w *WscDoNothing) OnUpgrade() websocket.UpgradeHandler {
+    return nil
+}
+
+type WscDoSend struct {
+    Count int
+    websocket.DoNothingHandler
+    Ws websocket.AsyncWebsocket
+}
+
+func (w *WscDoSend) OnControlMessage(_ websocket.Message) (bool, error) {
+    return false, nil
+}
+
+func (w *WscDoSend) OnMessage(message websocket.Message) error {
+    return nil
+}
+
+func (w *WscDoSend) OnUpgrade() websocket.UpgradeHandler {
+    go func() {
+        time.Sleep(100 * time.Millisecond)
+        for i := 0; i < w.Count; i++ {
+            w.Ws.Send(&websocket.SendMessage{Data: []byte("hello,client! " + strconv.Itoa(i))})
+        }
+        time.Sleep(100 * time.Millisecond)
+        w.Ws.ForceClose()
+    }()
+    return nil
+}

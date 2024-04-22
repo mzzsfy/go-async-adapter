@@ -254,7 +254,14 @@ func (s *serverAsyncWs) OnClose(err error) {
 }
 
 func (s *serverAsyncWs) Close(closeCode uint16, data string) error {
-    return s.conn.AsyncWrite(ws.NewCloseFrameBody(ws.StatusCode(closeCode), data))
+    err := s.conn.AsyncWrite(ws.NewCloseFrameBody(ws.StatusCode(closeCode), data))
+    if err != nil {
+        return err
+    }
+    return err
+}
+func (s *serverAsyncWs) ForceClose() error {
+    return s.conn.AsyncClose()
 }
 
 func (s *serverAsyncWs) Ping() error {

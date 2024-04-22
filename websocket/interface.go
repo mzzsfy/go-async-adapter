@@ -34,13 +34,24 @@ type Message struct {
     Payload []byte
 }
 
+type DataType int8
+
+const (
+    // DataTypeOpen 内容开始
+    DataTypeOpen DataType = iota
+    // DataTypeContinue 内容继续
+    DataTypeContinue
+    // DataTypeClose 内容完成
+    DataTypeClose
+)
+
 type DataWrapper interface {
     // Name 获取包装名称,如: flate 或 flate,xxx,不同协议不要重复,否则使用缓存会导致数据错乱
     Name() string
-    // ReadData 解码数据
-    ReadData([]byte) []byte
-    // WritData 编码数据
-    WritData([]byte) []byte
+    // ReadData 解码数据,每次数据至少2次调用 ReadData(data, DataTypeOpen), ReadData(data, DataTypeClose)
+    ReadData([]byte, DataType) []byte
+    // WritData 编码数据,每次数据至少2次调用,同 ReadData
+    WritData([]byte, DataType) []byte
 }
 
 type UpgradeHandler interface {
@@ -100,6 +111,8 @@ type SendMessage struct {
 type AsyncWebsocket interface {
     Send(*SendMessage) error
     Ping() error
-    // Close code含义:https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
+    // Close code含义: https://datatracker.ietf.org/doc/html/rfc6455#section-7.4.1
+    // force: true 等待一段时间后强制关闭
     Close(closeCode uint16, data string) error
+    ForceClose() error
 }
