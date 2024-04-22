@@ -106,6 +106,7 @@ func (w *WscDoSend) OnUpgrade() websocket.UpgradeHandler {
         for i := 0; i < w.Count; i++ {
             w.Ws.Send(&websocket.SendMessage{Data: []byte("hello,client! " + strconv.Itoa(i))})
         }
+        w.Ws.Close(1000, "")
         time.Sleep(100 * time.Millisecond)
         w.Ws.ForceClose()
     }()
